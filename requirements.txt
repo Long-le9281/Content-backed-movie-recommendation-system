@@ -1,0 +1,18 @@
+# Create a dedicated directory for the datasets
+mkdir -p recommender_data/{movielens,imdb}
+cd recommender_data
+
+# 1. Download and extract MovieLens 32M
+echo "Fetching MovieLens 32M..."
+curl -O https://files.grouplens.org/datasets/movielens/ml-32m.zip
+unzip ml-32m.zip -d movielens
+rm ml-32m.zip # Clean up the zip file
+
+# 2. Download IMDb Metadata directly from their data repository
+echo "Fetching IMDb datasets..."
+cd imdb
+curl -O https://datasets.imdbws.com/title.basics.tsv.gz
+curl -O https://datasets.imdbws.com/title.ratings.tsv.gz
+curl -O https://datasets.imdbws.com/title.crew.tsv.gz
+
+echo "Data staging complete."
