@@ -1,4 +1,5 @@
 # Create a dedicated directory for the datasets
+python -m pip install pandas
 mkdir -p recommender_data/{movielens,imdb}
 cd recommender_data
 
