@@ -1,5 +1,6 @@
 # Create a dedicated directory for the datasets
 python -m pip install pandas
+python -m pip install scikit-learn scipy
 mkdir -p recommender_data/{movielens,imdb}
 cd recommender_data
 
