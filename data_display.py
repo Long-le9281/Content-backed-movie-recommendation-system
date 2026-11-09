@@ -46,6 +46,8 @@ def build_interaction_dataframe(data_dir: Path) -> pd.DataFrame:
     """Build a rating-level dataframe enriched with IMDb and tag features."""
     movielens_dir = data_dir / "movielens" / "ml-32m"
     imdb_basics_path = data_dir / "imdb" / "title.basics.tsv.gz"
+    imdb_crew_path = data_dir / "imdb" / "title.crew.tsv.gz"
+    imdb_ratings_path = data_dir / "imdb" / "title.ratings.tsv.gz"
 
     required_paths = (
         movielens_dir / "movies.csv",
@@ -53,6 +55,8 @@ def build_interaction_dataframe(data_dir: Path) -> pd.DataFrame:
         movielens_dir / "ratings.csv",
         movielens_dir / "tags.csv",
         imdb_basics_path,
+        imdb_crew_path,
+        imdb_ratings_path,
     )
     missing_paths = [path for path in required_paths if not path.is_file()]
     if missing_paths:
@@ -72,6 +76,22 @@ def build_interaction_dataframe(data_dir: Path) -> pd.DataFrame:
         dtype="string",
         na_values=[r"\N"],
     ).rename(columns={"genres": "imdbGenres"})
+    imdb_crew = pd.read_csv(
+        imdb_crew_path,
+        sep="\t",
+        compression="gzip",
+        usecols=["tconst", "directors", "writers"],
+        dtype="string",
+        na_values=[r"\N"],
+    )
+    imdb_ratings = pd.read_csv(
+        imdb_ratings_path,
+        sep="\t",
+        compression="gzip",
+        usecols=["tconst", "averageRating", "numVotes"],
+        dtype={"tconst": "string", "averageRating": "float64", "numVotes": "Int64"},
+        na_values=[r"\N"],
+    )
 
     # MovieLens stores IMDb IDs without the IMDb prefix and leading zeroes.
     imdb_ids = pd.to_numeric(links["imdbId"], errors="coerce")
@@ -80,19 +100,26 @@ def build_interaction_dataframe(data_dir: Path) -> pd.DataFrame:
     )
 
     item_features = (
-        movies.rename(columns={"genres": "movieLensGenres"})
+        movies.rename(
+            columns={"genres": "movieLensGenres", "title": "movieLensTitle"}
+        )
         .merge(links[["movieId", "tconst"]], on="movieId", how="inner", validate="one_to_one")
         .merge(imdb_basics, on="tconst", how="inner", validate="many_to_one")
+        .merge(imdb_crew, on="tconst", how="left", validate="many_to_one")
+        .merge(imdb_ratings, on="tconst", how="left", validate="many_to_one")
+        .rename(columns={"imdbGenres": "genres_imdb"})
     )
 
     grouped_tags = (
         tags.dropna(subset=["tag"])
         .groupby("movieId", as_index=False)["tag"]
         .agg(lambda values: ", ".join(str(value) for value in values))
-        .rename(columns={"tag": "userTags"})
+        .rename(columns={"tag": "grouped_tags"})
     )
-    item_features = item_features.merge(grouped_tags, on="movieId", how="left")
-    item_features["userTags"] = item_features["userTags"].fillna("")
+    item_features = item_features.merge(
+        grouped_tags, on="movieId", how="left", validate="one_to_one"
+    )
+    item_features["grouped_tags"] = item_features["grouped_tags"].fillna("")
 
     return ratings.merge(
         item_features,
