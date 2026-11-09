@@ -25,18 +25,16 @@ IMDb title, genre, director, writer, and rating/vote-count metadata.
 `content_recommender.py` builds a TF-IDF vector `x_i` for each movie from its
 genres, user tags, directors, and writers. By default, movies with fewer than
 100 IMDb votes are not recommended. For a user with highly rated movies
-(`rating >= 4.0`), the rating-weighted profile is:
+(`rating >= 4.0`), the model combines each movie's TF-IDF feature vector into
+one user profile:
 
-$$
-\mathbf{p}
-=
-\frac{\displaystyle\sum_{i \in L}(r_i - 3)\,\mathbf{x}_i}
-     {\displaystyle\sum_{i \in L}(r_i - 3)}
-$$
+```text
+weight = rating - 3
+user profile = weighted average of liked movies' feature vectors
+```
 
-Here, `L` is the set of movies rated 4.0 or higher, `r_i` is a movie's
-rating, and `x_i` is its TF-IDF feature vector. The subtraction
-makes a 4-star rating count once and a 5-star rating count twice.
+Only movies rated 4.0 or higher are included. This gives a 4-star movie weight
+1 and a 5-star movie weight 2.
 
 The recommender fits `sklearn.neighbors.NearestNeighbors` with
 `metric="cosine"`. Its similarity score is `1 - distance`, and movies already
