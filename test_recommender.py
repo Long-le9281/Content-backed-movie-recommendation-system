@@ -9,6 +9,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from content_recommender import ContentRecommender
@@ -108,6 +109,110 @@ class ContentRecommenderTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "no usable content features"):
             recommender.get_top_n_recommendations_for_titles(["The Shining"])
+
+    def _vector(self, recommender: ContentRecommender, movie_id: int) -> np.ndarray:
+        position = recommender.movie_data.index[
+            recommender.movie_data["movieId"] == movie_id
+        ][0]
+        return recommender.movie_feature_matrix[position].toarray().ravel()
+
+    def test_title_profile_is_mean_of_liked_vectors(self) -> None:
+        recommender = ContentRecommender(data=self.data)
+
+        profile = recommender.build_profile_from_titles(["The Shining", "American Psycho"])
+
+        expected = (self._vector(recommender, 1) + self._vector(recommender, 4)) / 2
+        np.testing.assert_allclose(profile.toarray().ravel(), expected)
+
+    def test_repeated_title_is_counted_once(self) -> None:
+        recommender = ContentRecommender(data=self.data)
+
+        repeated = recommender.build_profile_from_titles(
+            ["The Shining", "The Shining", "American Psycho"]
+        )
+        single = recommender.build_profile_from_titles(["The Shining", "American Psycho"])
+
+        np.testing.assert_allclose(repeated.toarray(), single.toarray())
+
+    def test_single_movie_profile_is_its_own_vector(self) -> None:
+        recommender = ContentRecommender(data=self.data)
+
+        profile = recommender.build_profile_from_titles(["The Shining"])
+
+        np.testing.assert_allclose(profile.toarray().ravel(), self._vector(recommender, 1))
+
+    def test_movie_id_profile_without_ratings_matches_title_profile(self) -> None:
+        recommender = ContentRecommender(data=self.data)
+
+        by_id = recommender.build_profile_from_movie_ids([1, 4])
+        by_title = recommender.build_profile_from_titles(["The Shining", "American Psycho"])
+
+        np.testing.assert_allclose(by_id.toarray(), by_title.toarray())
+
+    def test_movie_id_profile_uses_rating_weights(self) -> None:
+        recommender = ContentRecommender(data=self.data)
+
+        profile = recommender.build_profile_from_movie_ids([1, 4, 7], [5.0, 4.0, 3.0])
+
+        expected = (2 * self._vector(recommender, 1) + 1 * self._vector(recommender, 4)) / 3
+        np.testing.assert_allclose(profile.toarray().ravel(), expected)
+
+    def test_unknown_movie_id_is_reported(self) -> None:
+        recommender = ContentRecommender(data=self.data)
+
+        with self.assertRaisesRegex(ValueError, "not found in the dataset: 999"):
+            recommender.build_profile_from_movie_ids([1, 999])
+
+    def test_movie_id_recommendations_exclude_every_listed_movie(self) -> None:
+        recommender = ContentRecommender(data=self.data, min_votes=100)
+
+        recommendations = recommender.get_top_n_recommendations_for_movie_ids(
+            [1, 4, 5], [5.0, 4.5, 2.0], n=5
+        )
+
+        titles = recommendations["primaryTitle"].tolist()
+        self.assertTrue({"The Shining", "American Psycho", "Candidate"}.isdisjoint(titles))
+        self.assertIn("Other Candidate", titles)
+
+    def test_top_profile_terms_are_sorted_and_positive(self) -> None:
+        recommender = ContentRecommender(data=self.data)
+        profile = recommender.build_profile_from_titles(["The Shining", "American Psycho"])
+
+        terms = recommender.top_profile_terms(profile, k=3)
+
+        self.assertEqual(len(terms), 3)
+        self.assertTrue(terms["weight"].is_monotonic_decreasing)
+        self.assertTrue((terms["weight"] > 0).all())
+        self.assertIn("director_nm_director_a", recommender.top_profile_terms(profile, k=50)["term"].tolist())
+
+    def test_cli_ratings_file_shows_profile_and_recommendations(self) -> None:
+        catalog = self.data.drop(columns=["userId", "rating"])
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            catalog_path = Path(temporary_directory) / "movie_features.csv"
+            ratings_path = Path(temporary_directory) / "ratings.csv"
+            catalog.to_csv(catalog_path, index=False)
+            pd.DataFrame(
+                {"userId": [99, 99], "movieId": [1, 4], "rating": [5.0, 4.0]}
+            ).to_csv(ratings_path, index=False)
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                result = recommender_cli_main(
+                    [str(catalog_path), "--ratings-file", str(ratings_path), "--show-profile", "-n", "2"]
+                )
+
+        self.assertEqual(result, 0)
+        self.assertIn("Top profile features:", output.getvalue())
+        self.assertIn("Recommended Movie", output.getvalue())
+
+    def test_cli_rejects_multiple_sources(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = recommender_cli_main(
+                ["--like", "The Shining", "--ratings-file", "ratings.csv"]
+            )
+
+        self.assertEqual(result, 2)
 
     def test_cli_accepts_catalog_without_ratings_for_title_queries(self) -> None:
         catalog = self.data.drop(columns=["userId", "rating"]).rename(

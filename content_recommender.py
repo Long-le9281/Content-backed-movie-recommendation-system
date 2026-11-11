@@ -197,9 +197,94 @@ class ContentRecommender:
             raise ValueError(f"User {user_id!r} has no rated movies with content features.")
 
         positions = movie_positions.loc[liked["movieId"]].to_numpy()
-        weights = (liked["rating"].to_numpy(dtype=float) - 3.0).reshape(-1, 1)
-        profile = self.movie_feature_matrix[positions].multiply(weights).sum(axis=0)
-        return csr_matrix(profile / weights.sum())
+        weights = liked["rating"].to_numpy(dtype=float) - 3.0
+        return self._build_profile(positions, weights)
+
+    def _ensure_embeddings(self) -> None:
+        """Load data and build item vectors if that has not happened yet."""
+        if self.data is None:
+            self.load_data()
+        if self.movie_data is None or self.movie_feature_matrix is None:
+            self.build_item_embeddings()
+
+    def _build_profile(
+        self, positions: Any, weights: Any | None = None
+    ) -> csr_matrix:
+        """Average item vectors x_i at ``positions`` into one profile vector.
+
+        Without weights this is the plain mean p = (1/k) * sum(x_i). With
+        weights w_i it is the weighted mean p = sum(w_i * x_i) / sum(w_i).
+        """
+        assert self.movie_feature_matrix is not None
+        positions = list(positions)
+        if not positions:
+            raise ValueError("A profile needs at least one movie.")
+        rows = self.movie_feature_matrix[positions]
+        if weights is None:
+            return csr_matrix(rows.mean(axis=0))
+        weights = pd.Series(weights, dtype=float).to_numpy().reshape(-1, 1)
+        if len(weights) != len(positions):
+            raise ValueError("Provide exactly one weight per movie.")
+        if weights.sum() <= 0:
+            raise ValueError("Profile weights must sum to a positive value.")
+        return csr_matrix(rows.multiply(weights).sum(axis=0) / weights.sum())
+
+    def build_profile_from_titles(self, titles: list[str]) -> csr_matrix:
+        """Return the plain mean vector of the liked titles (duplicates once)."""
+        self._ensure_embeddings()
+        return self._build_profile(self._resolve_title_positions(titles))
+
+    def _resolve_title_positions(self, titles: list[str]) -> list[int]:
+        if not titles:
+            raise ValueError("Provide at least one movie title.")
+        positions = [self._find_title_position(title) for title in titles]
+        return list(dict.fromkeys(positions))
+
+    def build_profile_from_movie_ids(
+        self, movie_ids: list[Any], ratings: list[float] | None = None
+    ) -> csr_matrix:
+        """Build a profile from movie IDs, optionally weighted by ratings.
+
+        Without ratings, every movie counts equally (plain mean). With
+        ratings, the same rule as ``generate_user_profile`` applies: only
+        ratings >= 4.0 are used, with weight ``rating - 3``. If an ID appears
+        more than once, its last rating is used.
+        """
+        self._ensure_embeddings()
+        assert self.movie_data is not None
+        if not movie_ids:
+            raise ValueError("Provide at least one movie ID.")
+        if ratings is not None and len(ratings) != len(movie_ids):
+            raise ValueError("Provide exactly one rating per movie ID.")
+
+        movie_positions = self.movie_data.reset_index().set_index("movieId")["index"]
+        missing = [movie_id for movie_id in movie_ids if movie_id not in movie_positions.index]
+        if missing:
+            shown = ", ".join(str(movie_id) for movie_id in missing[:10])
+            raise ValueError(f"Movie ID(s) not found in the dataset: {shown}")
+
+        if ratings is None:
+            unique_ids = list(dict.fromkeys(movie_ids))
+            return self._build_profile(movie_positions.loc[unique_ids].to_numpy())
+
+        rating_by_id = dict(zip(movie_ids, (float(rating) for rating in ratings)))
+        liked = {movie_id: rating for movie_id, rating in rating_by_id.items() if rating >= 4.0}
+        if not liked:
+            raise ValueError("No ratings of 4.0 or higher were provided.")
+        positions = movie_positions.loc[list(liked)].to_numpy()
+        weights = [rating - 3.0 for rating in liked.values()]
+        return self._build_profile(positions, weights)
+
+    def top_profile_terms(self, profile: csr_matrix, k: int = 10) -> pd.DataFrame:
+        """Return the ``k`` highest-weighted TF-IDF terms in a profile."""
+        if k < 1:
+            raise ValueError("k must be at least 1.")
+        assert self.vectorizer is not None
+        terms = self.vectorizer.get_feature_names_out()
+        dense = profile.toarray().ravel()
+        order = dense.argsort()[::-1][:k]
+        order = [index for index in order if dense[index] > 0]
+        return pd.DataFrame({"term": terms[order], "weight": dense[order]})
 
     def get_top_n_recommendations_for_titles(
         self, titles: list[str], n: int = 10
@@ -207,20 +292,25 @@ class ContentRecommender:
         """Recommend movies from a set of liked titles, each treated as 5 stars."""
         if n < 1:
             raise ValueError("n must be at least 1.")
-        if not titles:
-            raise ValueError("Provide at least one movie title.")
-        if self.data is None:
-            self.load_data()
-        if self.movie_data is None or self.movie_feature_matrix is None:
-            self.build_item_embeddings()
+        self._ensure_embeddings()
         assert self.movie_data is not None
-        assert self.movie_feature_matrix is not None
 
-        positions = [self._find_title_position(title) for title in titles]
-        positions = list(dict.fromkeys(positions))
-        profile = csr_matrix(self.movie_feature_matrix[positions].mean(axis=0))
+        positions = self._resolve_title_positions(titles)
+        profile = self._build_profile(positions)
         seen_movie_ids = set(self.movie_data.iloc[positions]["movieId"])
         return self._recommend_from_profile(profile, seen_movie_ids, n)
+
+    def get_top_n_recommendations_for_movie_ids(
+        self,
+        movie_ids: list[Any],
+        ratings: list[float] | None = None,
+        n: int = 10,
+    ) -> pd.DataFrame:
+        """Recommend from movie IDs; every listed movie counts as seen."""
+        if n < 1:
+            raise ValueError("n must be at least 1.")
+        profile = self.build_profile_from_movie_ids(movie_ids, ratings)
+        return self._recommend_from_profile(profile, set(movie_ids), n)
 
     def _find_title_position(self, title: str) -> int:
         """Resolve a title, using an optional year or IMDb votes to break ties."""

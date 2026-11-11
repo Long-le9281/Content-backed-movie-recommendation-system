@@ -62,6 +62,16 @@ existing ratings for that MovieLens user from `interactions.csv`. It does not
 represent ratings provided by the person currently running the recommender.
 Use `--user-id` only when you have a user ID with rating history.
 
+For a new user who is not in MovieLens, pass a CSV with a `movieId` column and
+an optional `rating` column. Without ratings, the profile is the plain average
+of the listed movies' vectors. With ratings, the `rating - 3` weighting above
+is used. Every listed movie is excluded from the results. Add `--show-profile`
+to print the highest-weighted features of the profile vector:
+
+```text
+python recommender_cli.py --ratings-file test_user_profile.csv --show-profile
+```
+
 `python -m unittest -v` runs assertions and reports pass/fail; it does not
 print the recommendations table.
 
