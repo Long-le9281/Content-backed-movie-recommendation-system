@@ -76,6 +76,19 @@ class ContentRecommenderTests(unittest.TestCase):
             )
         )
 
+    def test_title_recommendations_exclude_movies_without_titles(self) -> None:
+        data = pd.concat([self.data, self.data.iloc[[4, 4]].copy()], ignore_index=True)
+        data.loc[7, ["movieId", "primaryTitle"]] = [8, np.nan]
+        data.loc[8, ["movieId", "primaryTitle"]] = [9, ""]
+        recommender = ContentRecommender(data=data, min_votes=100)
+
+        recommendations = recommender.get_top_n_recommendations_for_titles(
+            ["The Shining"], n=10
+        )
+
+        self.assertTrue(recommendations["primaryTitle"].notna().all())
+        self.assertTrue(recommendations["primaryTitle"].str.strip().ne("").all())
+
     def test_duplicate_title_defaults_to_highest_vote_match(self) -> None:
         recommender = ContentRecommender(data=self.data, min_votes=100)
         recommender.build_item_embeddings()
