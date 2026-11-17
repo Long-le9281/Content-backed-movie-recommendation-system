@@ -6,6 +6,7 @@ cd recommender_data
 # 1. Download and extract MovieLens 32M
 echo "Fetching MovieLens 32M..."
 curl -O https://files.grouplens.org/datasets/movielens/ml-32m.zip
+## Invoke-WebRequest -Uri "https://files.grouplens.org/datasets/movielens/ml-32m.zip" -OutFile "ml-32m.zip"
 unzip ml-32m.zip -d movielens
 rm ml-32m.zip # Clean up the zip file
 
@@ -13,7 +14,10 @@ rm ml-32m.zip # Clean up the zip file
 echo "Fetching IMDb datasets..."
 cd imdb
 curl -O https://datasets.imdbws.com/title.basics.tsv.gz
+## Invoke-WebRequest -Uri "https://datasets.imdbws.com/title.basics.tsv.gz" -OutFile "title.basics.tsv.gz"
 curl -O https://datasets.imdbws.com/title.ratings.tsv.gz
+## Invoke-WebRequest -Uri "https://datasets.imdbws.com/title.ratings.tsv.gz" -OutFile "title.ratings.tsv.gz"
 curl -O https://datasets.imdbws.com/title.crew.tsv.gz
+## Invoke-WebRequest -Uri "https://datasets.imdbws.com/title.crew.tsv.gz" -OutFile "title.crew.tsv.gz"
 
 echo "Data staging complete."
