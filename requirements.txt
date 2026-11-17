@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Create a dedicated directory for the datasets
 python -m pip install pandas
 mkdir -p recommender_data/{movielens,imdb}
@@ -21,3 +22,8 @@ curl -O https://datasets.imdbws.com/title.crew.tsv.gz
 ## Invoke-WebRequest -Uri "https://datasets.imdbws.com/title.crew.tsv.gz" -OutFile "title.crew.tsv.gz"
 
 echo "Data staging complete."
+=======
+pandas
+scipy
+scikit-learn
+>>>>>>> b5ea034213456df82b7c9fa1891c4babfb4cede8

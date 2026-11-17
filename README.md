@@ -1,8 +1,56 @@
 # Content-backed-movie-recommendation-system
 
-Install the Python dependencies with `python -m pip install pandas scipy
-scikit-learn`. The MovieLens and IMDb files should be under `recommender_data/`;
-the build command below joins them into `recommender_data/interactions.csv`.
+## Setup
+
+From the project root, install the Python dependencies:
+
+```text
+python -m pip install -r requirements.txt
+```
+
+The MovieLens and IMDb files should be under `recommender_data/`. The build
+command later in this README joins them into `recommender_data/interactions.csv`.
+
+### Linux setup
+
+```bash
+python -m pip install -r requirements.txt
+mkdir -p recommender_data/movielens recommender_data/imdb
+
+curl -L -o ml-32m.zip https://files.grouplens.org/datasets/movielens/ml-32m.zip
+unzip ml-32m.zip -d recommender_data/movielens
+rm ml-32m.zip
+
+curl -L -o recommender_data/imdb/title.basics.tsv.gz https://datasets.imdbws.com/title.basics.tsv.gz
+curl -L -o recommender_data/imdb/title.ratings.tsv.gz https://datasets.imdbws.com/title.ratings.tsv.gz
+curl -L -o recommender_data/imdb/title.crew.tsv.gz https://datasets.imdbws.com/title.crew.tsv.gz
+```
+
+### Windows setup
+
+Run these commands in PowerShell from the project root:
+
+```powershell
+python -m pip install -r requirements.txt
+New-Item -ItemType Directory -Force recommender_data\movielens, recommender_data\imdb
+
+Invoke-WebRequest "https://files.grouplens.org/datasets/movielens/ml-32m.zip" `
+  -OutFile ml-32m.zip
+Expand-Archive ml-32m.zip -DestinationPath recommender_data\movielens -Force
+Remove-Item ml-32m.zip
+
+$imdb = "recommender_data\imdb"
+Invoke-WebRequest "https://datasets.imdbws.com/title.basics.tsv.gz" `
+  -OutFile "$imdb\title.basics.tsv.gz"
+Invoke-WebRequest "https://datasets.imdbws.com/title.ratings.tsv.gz" `
+  -OutFile "$imdb\title.ratings.tsv.gz"
+Invoke-WebRequest "https://datasets.imdbws.com/title.crew.tsv.gz" `
+  -OutFile "$imdb\title.crew.tsv.gz"
+```
+
+In Windows PowerShell, `curl` is an alias for `Invoke-WebRequest`, so commands
+using Unix options such as `curl -O` are not valid. Use `curl.exe -O` or the
+PowerShell commands above.
 
 Meeting 2 (23-Sep-2026)
 How do you validate accuracy?
