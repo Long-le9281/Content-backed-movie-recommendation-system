@@ -112,7 +112,13 @@ class ContentRecommender:
         ]
         movie_columns.extend(
             column
-            for column in ("directors", "writers", "startYear", "movieLensTitle")
+            for column in (
+                "directors",
+                "writers",
+                "startYear",
+                "movieLensTitle",
+                "averageRating",
+            )
             if column in self.data.columns
         )
         self.movie_data = self.data[movie_columns].copy()
@@ -396,6 +402,13 @@ class ContentRecommender:
             & result_has_title
             & ~result["movieId"].isin(seen_movie_ids)
         ]
+        if "averageRating" in result.columns:
+            imdb_rating = pd.to_numeric(result["averageRating"], errors="coerce")
+            imdb_rating = imdb_rating.fillna(imdb_rating.mean()).fillna(6.5)
+            result["Similarity_Score"] = (
+                result["Similarity_Score"] * (0.70 + 0.30 * imdb_rating / 10.0)
+            )
+            result = result.sort_values("Similarity_Score", ascending=False)
         return result[["primaryTitle", "genres_imdb", "Similarity_Score"]].head(n)
 
 
