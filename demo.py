@@ -11,16 +11,15 @@ From a notebook or the Python shell:
     
 """
 
+from __future__ import annotations
 
 '''
 python demo.py                       # every preset, then a summary table
 python demo.py horror_fan ghibli     # just these presets
 python demo.py --list                # show the presets
-python demo.py horror_fan --compare  # same profile at min_votes 100 / 10k / 100k
+python demo.py horror_fan --compare  # same profile at min_vostes 100 / 10k / 100k
 python demo.py --user-id 1           # a MovieLens user's history
 '''
-
-from __future__ import annotations
 
 import argparse
 import time
