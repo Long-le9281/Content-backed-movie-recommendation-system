@@ -14,7 +14,7 @@ import pandas as pd
 
 from content_recommender import ContentRecommender
 from data_display import build_interaction_dataframe
-from recommender_cli import main as recommender_cli_main
+from recommender_cli import load_user_ratings, main as recommender_cli_main
 
 
 class ContentRecommenderTests(unittest.TestCase):
@@ -213,6 +213,75 @@ class ContentRecommenderTests(unittest.TestCase):
             )
 
         self.assertEqual(result, 2)
+
+    def test_ignore_missing_skips_unknown_movie_ids(self) -> None:
+        recommender = ContentRecommender(data=self.data)
+
+        lenient = recommender.build_profile_from_movie_ids(
+            [1, 999, 4], [5.0, 5.0, 4.0], ignore_missing=True
+        )
+        known_only = recommender.build_profile_from_movie_ids([1, 4], [5.0, 4.0])
+
+        np.testing.assert_allclose(lenient.toarray(), known_only.toarray())
+
+    def test_load_user_ratings_reads_one_user_across_chunks(self) -> None:
+        ratings = pd.DataFrame(
+            {
+                "userId": [1, 1, 2, 2, 2, 3, 3],
+                "movieId": [10, 11, 1, 4, 5, 10, 11],
+                "rating": [3.0, 4.0, 5.0, 4.5, 2.0, 1.0, 1.0],
+                "timestamp": [0] * 7,
+            }
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "ratings.csv"
+            ratings.to_csv(path, index=False)
+            sorted_result = load_user_ratings(path, "2", chunk_size=2)
+            ratings.iloc[::-1].to_csv(path, index=False)
+            unsorted_result = load_user_ratings(
+                path, "2", chunk_size=2, assume_sorted=False
+            )
+
+            with self.assertRaisesRegex(ValueError, "User 42 was not found"):
+                load_user_ratings(path, "42", chunk_size=2, assume_sorted=False)
+
+        self.assertEqual(sorted_result, ([1, 4, 5], [5.0, 4.5, 2.0]))
+        self.assertEqual(sorted(zip(*unsorted_result)), [(1, 5.0), (4, 4.5), (5, 2.0)])
+
+    def test_cli_user_id_joins_movielens_ratings_with_catalog(self) -> None:
+        catalog = self.data.drop(columns=["userId", "rating"])
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            catalog_path = Path(temporary_directory) / "movie_features.csv"
+            ratings_path = Path(temporary_directory) / "ratings.csv"
+            catalog.to_csv(catalog_path, index=False)
+            pd.DataFrame(
+                {
+                    "userId": [7, 7, 7, 8],
+                    "movieId": [1, 4, 999, 2],
+                    "rating": [5.0, 4.5, 5.0, 5.0],
+                    "timestamp": [0, 0, 0, 0],
+                }
+            ).to_csv(ratings_path, index=False)
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                result = recommender_cli_main(
+                    [
+                        str(catalog_path),
+                        "--user-id",
+                        "7",
+                        "--movielens-ratings",
+                        str(ratings_path),
+                        "-n",
+                        "3",
+                    ]
+                )
+
+        self.assertEqual(result, 0)
+        printed = output.getvalue()
+        self.assertIn("Candidate", printed)
+        self.assertNotIn("The Shining", printed)
+        self.assertNotIn("American Psycho", printed)
 
     def test_cli_accepts_catalog_without_ratings_for_title_queries(self) -> None:
         catalog = self.data.drop(columns=["userId", "rating"]).rename(

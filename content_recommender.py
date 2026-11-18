@@ -241,14 +241,18 @@ class ContentRecommender:
         return list(dict.fromkeys(positions))
 
     def build_profile_from_movie_ids(
-        self, movie_ids: list[Any], ratings: list[float] | None = None
+        self,
+        movie_ids: list[Any],
+        ratings: list[float] | None = None,
+        ignore_missing: bool = False,
     ) -> csr_matrix:
         """Build a profile from movie IDs, optionally weighted by ratings.
 
         Without ratings, every movie counts equally (plain mean). With
         ratings, the same rule as ``generate_user_profile`` applies: only
         ratings >= 4.0 are used, with weight ``rating - 3``. If an ID appears
-        more than once, its last rating is used.
+        more than once, its last rating is used. With ``ignore_missing``,
+        IDs that have no content features are skipped instead of raising.
         """
         self._ensure_embeddings()
         assert self.movie_data is not None
@@ -259,7 +263,14 @@ class ContentRecommender:
 
         movie_positions = self.movie_data.reset_index().set_index("movieId")["index"]
         missing = [movie_id for movie_id in movie_ids if movie_id not in movie_positions.index]
-        if missing:
+        if missing and ignore_missing:
+            keep = [movie_id in movie_positions.index for movie_id in movie_ids]
+            if ratings is not None:
+                ratings = [rating for rating, kept in zip(ratings, keep) if kept]
+            movie_ids = [movie_id for movie_id, kept in zip(movie_ids, keep) if kept]
+            if not movie_ids:
+                raise ValueError("None of the movie IDs have content features.")
+        elif missing:
             shown = ", ".join(str(movie_id) for movie_id in missing[:10])
             raise ValueError(f"Movie ID(s) not found in the dataset: {shown}")
 
@@ -305,11 +316,12 @@ class ContentRecommender:
         movie_ids: list[Any],
         ratings: list[float] | None = None,
         n: int = 10,
+        ignore_missing: bool = False,
     ) -> pd.DataFrame:
         """Recommend from movie IDs; every listed movie counts as seen."""
         if n < 1:
             raise ValueError("n must be at least 1.")
-        profile = self.build_profile_from_movie_ids(movie_ids, ratings)
+        profile = self.build_profile_from_movie_ids(movie_ids, ratings, ignore_missing)
         return self._recommend_from_profile(profile, set(movie_ids), n)
 
     def _find_title_position(self, title: str) -> int:

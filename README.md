@@ -1,8 +1,10 @@
 # Content-backed-movie-recommendation-system
 
 Install the Python dependencies with `python -m pip install pandas scipy
-scikit-learn`. The MovieLens and IMDb files should be under `recommender_data/`;
-the build command below joins them into `recommender_data/interactions.csv`.
+scikit-learn`. The MovieLens and IMDb files should be under `recommender_data/`.
+The recommender reads two files: the per-movie catalog
+`recommender_data/movie_features.csv` (built by `merge_movielens_imdb.ipynb`)
+and, for `--user-id`, MovieLens `recommender_data/movielens/ml-32m/ratings.csv`.
 
 Meeting 2 (23-Sep-2026)
 How do you validate accuracy?
@@ -40,15 +42,22 @@ The recommender fits `sklearn.neighbors.NearestNeighbors` with
 `metric="cosine"`. Its similarity score is `1 - distance`, and movies already
 seen by the user are removed before selecting the top results.
 
-Build the merged dataset and recommend from a MovieLens user profile:
+Recommend from a MovieLens user's rating history:
 
 ```text
-python data_display.py --build-interactions
-python recommender_cli.py recommender_data\interactions.csv --user-id 123 -n 10
+python recommender_cli.py --user-id 123 -n 10
 ```
 
+`--user-id` reads only that user's rows from MovieLens `ratings.csv` (in
+chunks, stopping once past the user, since the file is ordered by userId) and
+joins them to `movie_features.csv` on `movieId`. Rated movies that are not in
+the catalog are skipped. Use `--movielens-ratings PATH` to point at a different
+ratings file. The merged `interactions.csv` from `--build-interactions` is not
+needed: it repeats every movie's features on each of its ~32M ratings and
+grows to hundreds of GB.
+
 For a quick title-based test, use the existing movie-feature catalog directly;
-this does not require building the 32-million-row interactions file. The
+this does not read any ratings file. The
 recommendation table is printed in the terminal:
 
 ```text
@@ -58,7 +67,7 @@ python recommender_cli.py --like "The Shining" --like "American Psycho" -n 10
 The `--like` titles are treated as equally preferred. This matches the
 title-input use case and does not ask the user to enter ratings. The
 rating-weighted profile formula above applies only to `--user-id`: it reads
-existing ratings for that MovieLens user from `interactions.csv`. It does not
+existing ratings for that MovieLens user from `ratings.csv`. It does not
 represent ratings provided by the person currently running the recommender.
 Use `--user-id` only when you have a user ID with rating history.
 
