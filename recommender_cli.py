@@ -113,6 +113,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="CSV with movieId (and optional rating) columns for a new user.",
     )
     parser.add_argument(
+        "--method",
+        choices=["combined", "average", "max"],
+        default="combined",
+        help= "Choose combined-vector, average, or maximum similarity."
+    )
+    parser.add_argument(
         "--show-profile",
         action="store_true",
         help="Print the highest-weighted features of the profile vector.",
@@ -145,14 +151,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.min_votes < 0:
         print("Error: --min-votes cannot be negative.")
         return 2
+    if args.method != "combined" and not args.like:
+        print("Error: --method average/max currently requires --like titles.")
+        return 2
 
     try:
         recommender = load_recommender(args.data_path, args.min_votes)
         if args.like:
             build_profile = lambda: recommender.build_profile_from_titles(args.like)
             recommend = lambda: recommender.get_top_n_recommendations_for_titles(
-                args.like, n=args.top_n
-            )
+                    args.like, n=args.top_n, method=args.method
+                )
         elif args.ratings_file is not None:
             movie_ids, ratings = load_ratings_file(args.ratings_file)
             build_profile = lambda: recommender.build_profile_from_movie_ids(

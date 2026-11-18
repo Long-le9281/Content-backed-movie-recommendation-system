@@ -287,18 +287,91 @@ class ContentRecommender:
         return pd.DataFrame({"term": terms[order], "weight": dense[order]})
 
     def get_top_n_recommendations_for_titles(
-        self, titles: list[str], n: int = 10
+        self, titles: list[str], n: int = 10, method: str = "combined"
     ) -> pd.DataFrame:
-        """Recommend movies from a set of liked titles, each treated as 5 stars."""
+        """Recommend movies using selected method."""
+
+        if method not in ["combined", "average", "max"]:
+            raise ValueError("Invalid recommendation method.")
+
+        if method == "combined":
+
+            if n < 1:
+                raise ValueError("n must be at least 1.")
+            self._ensure_embeddings()
+            assert self.movie_data is not None
+
+            positions = self._resolve_title_positions(titles)
+            profile = self._build_profile(positions)
+            seen_movie_ids = set(self.movie_data.iloc[positions]["movieId"])
+            return self._recommend_from_profile(profile, seen_movie_ids, n)
+
+        return self._recommend_independently(titles, n, aggregation=method)
+
+    def _recommend_independently(
+            self, titles: list[str], n: int = 10, aggregation: str = "average"
+    ) -> pd.DataFrame:
+        """ Compare every candidate with every  input movie independently."""
+
         if n < 1:
             raise ValueError("n must be at least 1.")
+        if aggregation not in ["average", "max"]:
+            raise ValueError("aggregation must be either 'average' or 'max'.")
+
         self._ensure_embeddings()
         assert self.movie_data is not None
+        assert self.movie_feature_matrix is not None
 
+        # Locate the input movies and edlude them from the recommendations
         positions = self._resolve_title_positions(titles)
-        profile = self._build_profile(positions)
-        seen_movie_ids = set(self.movie_data.iloc[positions]["movieId"])
-        return self._recommend_from_profile(profile, seen_movie_ids, n)
+        seen_ids = set(self.movie_data.iloc[positions]["movieId"])
+
+        # Consider every eligable candidate, not just the top K
+        has_title = self.movie_data["primaryTitle"].notna() & (
+            self.movie_data["primaryTitle"].astype(str).str.strip().ne("")
+        )
+
+        eligible = (
+            self.movie_data["numVotes"].ge(self.min_votes).fillna(False)
+            & has_title
+            & ~self.movie_data["movieId"].isin(seen_ids)
+        )
+
+        candidate_positions = self.movie_data.index[eligible].to_numpy()
+
+        if not len(candidate_positions):
+            return pd.DataFrame(
+                columns=["primaryTitle", "genres_imdb", "Similarity_Score"]
+            )
+
+        # Retrieve normalized TF-IDF vectors
+        inputs = self.movie_feature_matrix[positions]
+        candidates = self.movie_feature_matrix[candidate_positions]
+
+        if (inputs.getnnz(axis=1) == 0).any():
+            raise ValueError("An input movie has no usable content features.")
+
+        #Compare each input movie against every candidate.
+        #Dot product equals cosine similarity for normalized vectors.
+        similarities = (inputs @ candidates.T).toarray()
+
+        # Average similarities, or take the maximum if requested.
+        if aggregation == "average":
+            scores = similarities.mean(axis=0)
+        else:
+            scores = similarities.max(axis=0)
+
+        # Store scores and rank all eligible candidates.
+        result = self.movie_data.iloc[candidate_positions].copy()
+        result["Similarity_Score"] = scores
+
+        result = result.sort_values(
+            ["Similarity_Score", "movieId"], 
+            ascending=[False, True],
+            kind = "stable",
+        )
+
+        return result[["primaryTitle", "genres_imdb", "Similarity_Score"]].head(n)
 
     def get_top_n_recommendations_for_movie_ids(
         self,
