@@ -1,3 +1,4 @@
 recommender_data/
 __pycache__/
 *.py[cod]
+evaluation_results/

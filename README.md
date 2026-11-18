@@ -141,3 +141,30 @@ to change the vote-count cutoff.
 The merged CSV includes `movieId`, `userId`, `rating`, `primaryTitle`,
 `genres_imdb`, `grouped_tags`, and `numVotes`; `directors` and `writers` are
 joined as additional text features.
+
+## Held-out evaluation
+
+`evaluate.py` measures how well the recommender predicts movies a user
+actually liked. It samples MovieLens users (default 1000, each with at least
+20 ratings and 10 ratings >= 4.0), hides a random 20% of each user's ratings,
+builds the profile from the other 80%, and checks whether the hidden movies
+rated 4.0 or higher appear in the top-K list. The split is seeded per user
+(`--seed`), so runs are reproducible.
+
+```text
+python evaluate.py                         # content model + popularity and random baselines
+python evaluate.py --reuse-split --experiments   # same split, plus ablations/variants
+python -m unittest test_evaluate -v
+```
+
+Metrics at K = 10, 20, 50: hit rate, precision, recall, NDCG, MRR, genre
+diversity (mean pairwise Jaccard distance) and catalog coverage, with 95%
+bootstrap confidence intervals over users. `--experiments` adds genres-only
+and genres+tags features, a plain-mean profile, no IMDb re-ranking, and
+`min_votes` of 10k and 100k; all are scored against the same hidden movies.
+
+To avoid leakage, the popularity baseline counts ratings without the hidden
+rows, and the item tags are rebuilt from `tags.csv` without the sampled
+users' tags (`--keep-test-user-tags` disables this for comparison). Results go
+to `evaluation_results/` (`summary.csv`, `per_user.csv`, `split.csv`, and
+plots if matplotlib is installed).
