@@ -1,9 +1,8 @@
 """Run content-based movie recommendations with the TF-IDF/KNN model.
 
 Examples:
-    python recommender_cli.py recommender_data/interactions.csv --user-id 12345
-    python recommender_cli.py recommender_data/movie_features.csv --like "The Shining" --like "The Lighthouse" --like "American Psycho"
-    python recommender_cli.py recommender_data/interactions.csv --like "The Shining" --like "The Lighthouse" --like "American Psycho"
+    python recommender_cli.py --user-id 123
+    python recommender_cli.py --like "The Shining" --like "The Lighthouse" --like "American Psycho"
     python recommender_cli.py --ratings-file test_user_profile.csv --show-profile
 """
 
@@ -19,6 +18,10 @@ from content_recommender import ContentRecommender
 
 
 DEFAULT_DATA_PATH = Path(__file__).parent / "recommender_data" / "movie_features.csv"
+DEFAULT_RATINGS_PATH = (
+    Path(__file__).parent / "recommender_data" / "movielens" / "ml-32m" / "ratings.csv"
+)
+RATINGS_CHUNK_SIZE = 2_000_000
 
 
 def load_recommender(data_path: Path, min_votes: int) -> ContentRecommender:
@@ -62,6 +65,44 @@ def load_ratings_file(path: Path) -> tuple[list, list[float] | None]:
     return movie_ids, ratings["rating"].tolist()
 
 
+def load_user_ratings(
+    path: Path,
+    user_id: str,
+    chunk_size: int = RATINGS_CHUNK_SIZE,
+    assume_sorted: bool = True,
+) -> tuple[list[int], list[float]]:
+    """Read one user's ratings from a MovieLens ``ratings.csv`` in chunks.
+
+    Only that user's rows are kept in memory. MovieLens documents that
+    ratings.csv is ordered by userId, so by default the scan stops at the
+    first chunk that ends past the user. Pass ``assume_sorted=False`` for a
+    file without that guarantee; the whole file is then scanned.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"MovieLens ratings file not found: {path}")
+    try:
+        target = int(user_id)
+    except ValueError as error:
+        raise ValueError(f"User ID must be an integer, got {user_id!r}.") from error
+
+    matches = []
+    with pd.read_csv(
+        path, usecols=["userId", "movieId", "rating"], chunksize=chunk_size
+    ) as chunks:
+        for chunk in chunks:
+            matches.append(chunk[chunk["userId"] == target])
+            if assume_sorted and chunk["userId"].iloc[-1] > target:
+                break
+
+    user_ratings = pd.concat(matches, ignore_index=True)
+    if user_ratings.empty:
+        raise ValueError(f"User {target} was not found in {path}.")
+    return (
+        user_ratings["movieId"].astype("int64").tolist(),
+        user_ratings["rating"].astype(float).tolist(),
+    )
+
+
 def print_profile_terms(terms: pd.DataFrame) -> None:
     """Print the strongest features in the user profile vector."""
     print("Top profile features:")
@@ -97,7 +138,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--user-id",
-        help="Recommend using an existing user's ratings (use this or --like).",
+        help="Recommend for an existing MovieLens user from their rating history.",
+    )
+    parser.add_argument(
+        "--movielens-ratings",
+        type=Path,
+        default=DEFAULT_RATINGS_PATH,
+        metavar="CSV",
+        help=f"MovieLens ratings.csv used by --user-id (default: {DEFAULT_RATINGS_PATH}).",
     )
     parser.add_argument(
         "--like",
@@ -161,10 +209,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             recommend = lambda: recommender.get_top_n_recommendations_for_movie_ids(
                 movie_ids, ratings, n=args.top_n
             )
-        else:
+        elif ContentRecommender.RATING_COLUMNS.issubset(recommender.data.columns):
+            # Small merged files that already contain ratings still work.
             build_profile = lambda: recommender.generate_user_profile(args.user_id)
             recommend = lambda: recommender.get_top_n_recommendations(
                 args.user_id, n=args.top_n
+            )
+        else:
+            movie_ids, ratings = load_user_ratings(args.movielens_ratings, args.user_id)
+            build_profile = lambda: recommender.build_profile_from_movie_ids(
+                movie_ids, ratings, ignore_missing=True
+            )
+            recommend = lambda: recommender.get_top_n_recommendations_for_movie_ids(
+                movie_ids, ratings, n=args.top_n, ignore_missing=True
             )
         recommendations = recommend()
         if args.show_profile:
