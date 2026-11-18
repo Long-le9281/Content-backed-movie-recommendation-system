@@ -112,7 +112,13 @@ class ContentRecommender:
         ]
         movie_columns.extend(
             column
-            for column in ("directors", "writers", "startYear", "movieLensTitle")
+            for column in (
+                "directors",
+                "writers",
+                "startYear",
+                "movieLensTitle",
+                "averageRating",
+            )
             if column in self.data.columns
         )
         self.movie_data = self.data[movie_columns].copy()
@@ -382,8 +388,11 @@ class ContentRecommender:
         if profile.nnz == 0:
             raise ValueError("The liked movies have no usable content features.")
         eligible = self.movie_data["numVotes"].ge(self.min_votes).fillna(False)
+        has_title = self.movie_data["primaryTitle"].notna() & self.movie_data[
+            "primaryTitle"
+        ].astype(str).str.strip().ne("")
         available = self.movie_data.loc[
-            eligible & ~self.movie_data["movieId"].isin(seen_movie_ids)
+            eligible & has_title & ~self.movie_data["movieId"].isin(seen_movie_ids)
         ]
         if available.empty:
             return pd.DataFrame(
@@ -397,10 +406,21 @@ class ContentRecommender:
         )
         result = self.movie_data.iloc[indices[0]].copy()
         result["Similarity_Score"] = 1.0 - distances[0]
+        result_has_title = result["primaryTitle"].notna() & result[
+            "primaryTitle"
+        ].astype(str).str.strip().ne("")
         result = result[
             result["numVotes"].ge(self.min_votes).fillna(False)
+            & result_has_title
             & ~result["movieId"].isin(seen_movie_ids)
         ]
+        if "averageRating" in result.columns:
+            imdb_rating = pd.to_numeric(result["averageRating"], errors="coerce")
+            imdb_rating = imdb_rating.fillna(imdb_rating.mean()).fillna(6.5)
+            result["Similarity_Score"] = (
+                result["Similarity_Score"] * (0.70 + 0.30 * imdb_rating / 10.0)
+            )
+            result = result.sort_values("Similarity_Score", ascending=False)
         return result[["primaryTitle", "genres_imdb", "Similarity_Score"]].head(n)
 
 

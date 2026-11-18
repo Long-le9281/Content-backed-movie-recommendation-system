@@ -60,6 +60,34 @@ class ContentRecommenderTests(unittest.TestCase):
         self.assertNotIn("Low Vote Candidate", recommendations["primaryTitle"].tolist())
         self.assertNotIn("The Shining", recommendations["primaryTitle"].tolist())
 
+    def test_imdb_rating_breaks_similarity_ties_without_changing_columns(self) -> None:
+        data = pd.DataFrame(
+            [
+                (1, "The Shining", "Horror,Drama", "haunted hotel", 10000, 7.8),
+                (2, "Low Rated Match", "Horror,Drama", "haunted hotel", 1000, 3.0),
+                (3, "High Rated Match", "Horror,Drama", "haunted hotel", 1000, 9.0),
+            ],
+            columns=[
+                "movieId",
+                "primaryTitle",
+                "genres_imdb",
+                "grouped_tags",
+                "numVotes",
+                "averageRating",
+            ],
+        )
+        recommender = ContentRecommender(data=data)
+
+        recommendations = recommender.get_top_n_recommendations_for_titles(
+            ["The Shining"], n=2
+        )
+
+        self.assertEqual(recommendations.iloc[0]["primaryTitle"], "High Rated Match")
+        self.assertEqual(
+            recommendations.columns.tolist(),
+            ["primaryTitle", "genres_imdb", "Similarity_Score"],
+        )
+
     def test_title_profile_uses_two_liked_titles_and_excludes_them(self) -> None:
         recommender = ContentRecommender(data=self.data, min_votes=100)
 
@@ -75,6 +103,19 @@ class ContentRecommenderTests(unittest.TestCase):
                 recommendations["primaryTitle"].tolist()
             )
         )
+
+    def test_title_recommendations_exclude_movies_without_titles(self) -> None:
+        data = pd.concat([self.data, self.data.iloc[[4, 4]].copy()], ignore_index=True)
+        data.loc[7, ["movieId", "primaryTitle"]] = [8, np.nan]
+        data.loc[8, ["movieId", "primaryTitle"]] = [9, ""]
+        recommender = ContentRecommender(data=data, min_votes=100)
+
+        recommendations = recommender.get_top_n_recommendations_for_titles(
+            ["The Shining"], n=10
+        )
+
+        self.assertTrue(recommendations["primaryTitle"].notna().all())
+        self.assertTrue(recommendations["primaryTitle"].str.strip().ne("").all())
 
     def test_duplicate_title_defaults_to_highest_vote_match(self) -> None:
         recommender = ContentRecommender(data=self.data, min_votes=100)
